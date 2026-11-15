@@ -323,7 +323,8 @@
           el('div', { class: 'bar', 'aria-hidden': 'true' }, el('i', { style: 'width:' + Math.max(3, Math.round((r.implied_value_usd / max) * 100)) + '%' })),
           el('span', { class: 'num', text: fmtUsd(r.implied_value_usd) })
         )),
-        el('td', null, el('span', { class: 'verdict ' + r.farm_verdict, text: VERDICT_LABEL[r.farm_verdict] }))
+        el('td', null, el('span', { class: 'verdict ' + r.farm_verdict, text: VERDICT_LABEL[r.farm_verdict] })),
+        el('td', null, el('span', { class: 'risk ' + r.risk, text: RISK_LABEL[r.risk] || r.risk }))
       );
       tbody.appendChild(tr);
     });
@@ -338,7 +339,8 @@
             sortHeader('growth', '7d'),
             sortHeader('age', 'Age'),
             sortHeader('implied', 'Implied value'),
-            el('th', { scope: 'col', text: 'Verdict' })
+            el('th', { scope: 'col', text: 'Verdict' }),
+            el('th', { scope: 'col', text: 'Risk' })
           )),
           tbody
         )
@@ -459,7 +461,12 @@
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' }),
-      el('p', { class: 'sub', text: 'Risk: ' + (RISK_TEXT[row.risk] || RISK_TEXT.steady) })
+      el('p', { class: 'sub', text: 'Risk: ' + (RISK_TEXT[row.risk] || RISK_TEXT.steady) }),
+      el('p', { class: 'sub', text: 'Chains: ' + (row.chains || []).map(function (c) {
+        var agg = (DATA.chains || []).filter(function (a) { return a.chain === c; })[0];
+        if (!agg) return c;
+        return c + ' holds ' + fmtUsd(agg.total_implied_usd) + ' of implied value across ' + agg.protocols + ' pre-token protocols';
+      }).join('; ') + '. Farm on the cheapest chain the protocol runs on: the gas in the plan above is priced per chain.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Net farm cost' }),

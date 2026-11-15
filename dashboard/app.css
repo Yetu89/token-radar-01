@@ -103,6 +103,10 @@ tbody tr[data-selected="true"] { background: #1b2b20; }
 .verdict.farm-small { background: #134e4a; color: #5eead4; }
 .verdict.thin { background: #451a03; color: var(--amber); }
 .verdict.skip { background: #1f2937; color: var(--skip); }
+.risk { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.risk.falling { background: #450a0a; color: #fca5a5; }
+.risk.surging { background: #451a03; color: var(--amber); }
+.risk.steady { background: #1f2937; color: var(--muted); }
 .status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
