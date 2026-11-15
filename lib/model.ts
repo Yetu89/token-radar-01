@@ -119,6 +119,54 @@ export interface FarmStep {
 export type FarmVerdict = 'farm' | 'farm-small' | 'thin' | 'skip';
 
 /** One row of board.json: the ranked board's row. */
+/** How a protocol's last seven days read: a steep fall, a sharp surge, or nothing worth flagging. */
+export type Risk = 'falling' | 'surging' | 'steady';
+
+/** The risk flag from the seven-day change alone: a fall of 15% or more, a surge of 25% or more. */
+export function riskFor(change7d: number | null): Risk {
+  if (change7d === null || !Number.isFinite(change7d)) return 'steady';
+  if (change7d <= -15) return 'falling';
+  if (change7d >= 25) return 'surging';
+  return 'steady';
+}
+
+/** One chain's share of the board: how many pre-token protocols live there, what they are worth together, and which one leads. */
+export interface ChainAggregate {
+  chain: string;
+  protocols: number;
+  total_implied_usd: number;
+  farm_rows: number;
+  top_slug: string;
+  top_name: string;
+  top_implied_usd: number;
+}
+
+/** The board grouped by chain, richest first. A protocol on several chains counts on each of them. */
+export function chainAggregates(board: BoardRow[]): ChainAggregate[] {
+  const byChain = new Map<string, { protocols: number; total: number; farm: number; top: BoardRow | null }>();
+  for (const row of board) {
+    for (const chain of row.chains) {
+      const agg = byChain.get(chain) ?? { protocols: 0, total: 0, farm: 0, top: null };
+      agg.protocols += 1;
+      agg.total += row.implied_value_usd;
+      if (row.farm_verdict === 'farm' || row.farm_verdict === 'farm-small') agg.farm += 1;
+      if (agg.top === null || row.implied_value_usd > agg.top.implied_value_usd) agg.top = row;
+      byChain.set(chain, agg);
+    }
+  }
+  return [...byChain.entries()]
+    .map(([chain, agg]) => ({
+      chain,
+      protocols: agg.protocols,
+      total_implied_usd: agg.total,
+      farm_rows: agg.farm,
+      top_slug: agg.top?.slug ?? '',
+      top_name: agg.top?.name ?? '',
+      top_implied_usd: agg.top?.implied_value_usd ?? 0,
+    }))
+    .sort((a, b) => b.total_implied_usd - a.total_implied_usd || (a.chain < b.chain ? -1 : 1));
+}
+
 export interface BoardRow {
   rank: number;
   slug: string;
@@ -145,6 +193,7 @@ export interface BoardRow {
   farm_cost_usd: number;
   farm_gas_usd: number;
   farm_verdict: FarmVerdict;
+  risk: Risk;
   farm_steps: string[];
 }
 
@@ -167,6 +216,7 @@ export interface RadarRow {
   farm_cost_usd: number;
   farm_gas_usd: number;
   farm_verdict: FarmVerdict;
+  risk: Risk;
 }
 
 /** A live-token protocol: it already trades, so the board shows the market's own value, not a model's. */
@@ -192,6 +242,7 @@ export interface RadarData {
   board_size: number;
   early_size: number;
   live_size: number;
+  chains: ChainAggregate[];
   rows: RadarRow[];
   live: LiveRow[];
 }
@@ -551,6 +602,7 @@ export function buildBoard(snapshot: Snapshot, fit: CompsFit, model: ModelConsta
     farm_cost_usd: s.cost,
     farm_gas_usd: s.gas,
     farm_verdict: s.verdict,
+    risk: riskFor(s.p.change_7d),
     farm_steps: farmSteps(s.p, s.age, s.implied, model).map(stepText),
   }));
 }
@@ -577,6 +629,7 @@ export function radarRow(row: BoardRow): RadarRow {
     farm_cost_usd: row.farm_cost_usd,
     farm_gas_usd: row.farm_gas_usd,
     farm_verdict: row.farm_verdict,
+    risk: row.risk,
   };
 }
 
@@ -597,6 +650,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     board_size: board.length,
     early_size: early,
     live_size: live.length,
+    chains: chainAggregates(board),
     rows: board.map(radarRow),
     live,
   };

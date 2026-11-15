@@ -7,7 +7,7 @@
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('board');
-  var state = { q: '', category: 'all', chain: 'all', verdict: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var state = { q: '', category: 'all', chain: 'all', verdict: 'all', risk: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -108,6 +108,12 @@
     skip: 'Skip it: the modelled value is too thin for the gas and the time; watch it instead.'
   };
   var VERDICT_LABEL = { farm: 'Farm', 'farm-small': 'Farm small', thin: 'Thin', skip: 'Skip' };
+  var RISK_LABEL = { falling: 'Falling', surging: 'Surging', steady: 'Steady' };
+  var RISK_TEXT = {
+    falling: 'TVL fell 15% or more in seven days: farm it smaller, or wait for the fall to stop.',
+    surging: 'TVL rose 25% or more in seven days: the growth multiplier credits the move, but a spike can unwind.',
+    steady: 'No sharp move in seven days: nothing in the recent change argues for or against the farm.'
+  };
   function actionFor(p, capital, chain) {
     var c = (p.category || '').toLowerCase();
     var name = p.name;
@@ -156,6 +162,7 @@
     if (params.get('category')) state.category = params.get('category');
     if (params.get('chain')) state.chain = params.get('chain');
     if (params.get('verdict')) state.verdict = params.get('verdict');
+    if (params.get('risk')) state.risk = params.get('risk');
   }
   function writeHash() {
     var params = new URLSearchParams();
@@ -163,6 +170,7 @@
     if (state.category !== 'all') params.set('category', state.category);
     if (state.chain !== 'all') params.set('chain', state.chain);
     if (state.verdict !== 'all') params.set('verdict', state.verdict);
+    if (state.risk !== 'all') params.set('risk', state.risk);
     if (state.selected) params.set('p', state.selected);
     var next = params.toString();
     if (next) window.history.replaceState(null, '', '#' + next);
@@ -175,6 +183,7 @@
       if (state.category !== 'all' && r.category !== state.category) return false;
       if (state.chain !== 'all' && !(r.chains || []).some(function (c) { return c === state.chain; })) return false;
       if (state.verdict !== 'all' && r.farm_verdict !== state.verdict) return false;
+      if (state.risk !== 'all' && r.risk !== state.risk) return false;
       if (!q) return true;
       var hay = [r.name, r.slug, r.category, (r.chains || []).join(' ')].join(' ').toLowerCase();
       return hay.indexOf(q) >= 0;
@@ -208,7 +217,16 @@
 
   function lede() {
     var counts = { farm: 0, 'farm-small': 0, thin: 0, skip: 0 };
-    DATA.rows.forEach(function (r) { counts[r.farm_verdict] = (counts[r.farm_verdict] || 0) + 1; });
+    var falling = 0;
+    var totalImplied = 0;
+    var topTenImplied = 0;
+    DATA.rows.forEach(function (r) {
+      counts[r.farm_verdict] = (counts[r.farm_verdict] || 0) + 1;
+      if (r.risk === 'falling') falling += 1;
+      totalImplied += r.implied_value_usd;
+      if (r.rank <= 10) topTenImplied += r.implied_value_usd;
+    });
+    var topTenShare = totalImplied > 0 ? Math.round((topTenImplied / totalImplied) * 100) : 0;
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
@@ -218,7 +236,10 @@
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
         el('div', { class: 'fact' }, el('span', { text: 'Pre-token rows scored' }), el('b', { text: String(DATA.board_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Verdicts: farm / farm small' }), el('b', { text: (counts.farm + counts['farm-small']) + ' rows' })),
-        el('div', { class: 'fact' }, el('span', { text: 'Verdicts: thin / skip' }), el('b', { text: (counts.thin + counts.skip) + ' rows' }))
+        el('div', { class: 'fact' }, el('span', { text: 'Verdicts: thin / skip' }), el('b', { text: (counts.thin + counts.skip) + ' rows' })),
+        el('div', { class: 'fact' }, el('span', { text: 'Total implied value' }), el('b', { text: fmtUsd(totalImplied) })),
+        el('div', { class: 'fact' }, el('span', { text: 'Top 10 share of it' }), el('b', { text: topTenShare + '%' })),
+        el('div', { class: 'fact' }, el('span', { text: 'Falling 15%+ in 7 days' }), el('b', { text: falling + ' rows' }))
       )
     );
   }
@@ -243,6 +264,11 @@
       ['farm', 'farm-small', 'thin', 'skip'].map(function (v) { return el('option', { value: v, text: VERDICT_LABEL[v], selected: v === state.verdict ? 'selected' : null }); })
     );
     verdictSelect.addEventListener('change', function () { state.verdict = verdictSelect.value; writeHash(); render(); });
+    var riskSelect = el('select', { id: 'risk', 'aria-label': 'Filter by risk' },
+      el('option', { value: 'all', text: 'All risks' }),
+      ['falling', 'surging', 'steady'].map(function (v) { return el('option', { value: v, text: RISK_LABEL[v], selected: v === state.risk ? 'selected' : null }); })
+    );
+    riskSelect.addEventListener('change', function () { state.risk = riskSelect.value; writeHash(); render(); });
     var pre = el('button', { type: 'button', 'aria-pressed': state.tab === 'pre-token' ? 'true' : 'false', text: 'Pre-token', onclick: function () { state.tab = 'pre-token'; render(); } });
     var live = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; render(); } });
     return el('div', { class: 'controls' },
@@ -250,6 +276,7 @@
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), catSelect),
       el('div', { class: 'field' }, el('label', { for: 'chain', text: 'Chain' }), chainSelect),
       el('div', { class: 'field' }, el('label', { for: 'verdict', text: 'Verdict' }), verdictSelect),
+      el('div', { class: 'field' }, el('label', { for: 'risk', text: 'Risk' }), riskSelect),
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
       el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : DATA.live.length + ' live-token protocols' })
     );
@@ -270,7 +297,7 @@
       return el('div', { class: 'panel' }, el('div', { class: 'empty' },
         el('h2', { text: 'No protocol matches that filter' }),
         el('p', { text: 'Clear the search or pick another category to see the board again.' }),
-        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.chain = 'all'; state.verdict = 'all'; writeHash(); render(); } })
+        el('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.q = ''; state.category = 'all'; state.chain = 'all'; state.verdict = 'all'; state.risk = 'all'; writeHash(); render(); } })
       ));
     }
     var max = list[0].implied_value_usd || 1;
@@ -342,6 +369,23 @@
     );
   }
 
+  // How concentrated the value is: the share of the board's total implied value the top chains hold.
+  // A board spread thin across many chains is a radar; a board where three chains hold most of the
+  // value is a bet on those chains, and the farm plan should say so.
+  function concentrationNote() {
+    var total = 0;
+    DATA.rows.forEach(function (r) { total += r.implied_value_usd; });
+    var chains = (DATA.chains || []).slice(0, 3);
+    if (total <= 0 || chains.length === 0) return null;
+    var topShare = 0;
+    var parts = chains.map(function (c) {
+      var share = Math.round((c.total_implied_usd / total) * 100);
+      topShare += share;
+      return c.chain + ' ' + share + '% (' + fmtUsd(c.total_implied_usd) + ')';
+    });
+    return el('p', { class: 'sub', text: 'Concentration: the top ' + chains.length + ' chains hold about ' + topShare + '% of the board\u2019s total implied value of ' + fmtUsd(total) + ' \u2014 ' + parts.join(', ') + '. The rest is spread across ' + ((DATA.chains || []).length - chains.length) + ' more chains.' });
+  }
+
   function modelPanel() {
     var m = DATA.model;
     var fit = DATA.fit;
@@ -361,7 +405,25 @@
           return el('tr', null, el('td', { text: c.category }), el('td', { class: 'num', text: String(c.comps) }), el('td', { class: 'num', text: c.multiple.toFixed(3) }));
         }))
       ),
-      el('p', { class: 'sub', text: 'Out of sample: the same rule re-fitted on half the comps predicts the other half (' + oos.held_out + ' protocols) with a median error of ' + oos.median_ape_pct + '%, and ' + oos.within_2x_pct + '% of them land within twice their real market cap. The fit is a guide, not a price: a multiple fitted on a market can still be wrong about any one protocol.' })
+      el('p', { class: 'sub', text: 'Out of sample: the same rule re-fitted on half the comps predicts the other half (' + oos.held_out + ' protocols) with a median error of ' + oos.median_ape_pct + '%, and ' + oos.within_2x_pct + '% of them land within twice their real market cap. The fit is a guide, not a price: a multiple fitted on a market can still be wrong about any one protocol.' }),
+      el('h3', { text: 'Where the value sits, by chain' }),
+      el('p', { class: 'sub', text: 'A protocol on several chains counts on each of them, so the rows add up to more than the board. The chain a farm runs on sets its gas: a dollar of implied value on Solana costs cents to farm, the same dollar on Ethereum costs dollars.' }),
+      el('table', { class: 'fit-table' },
+        el('thead', null, el('tr', null, el('th', { text: 'Chain' }), el('th', { class: 'num', text: 'Protocols' }), el('th', { class: 'num', text: 'Farm rows' }), el('th', { class: 'num', text: 'Total implied' }), el('th', { text: 'Top protocol' }))),
+        el('tbody', null, (DATA.chains || []).slice(0, 10).map(function (c) {
+          return el('tr', null,
+            el('td', { text: c.chain }),
+            el('td', { class: 'num', text: String(c.protocols) }),
+            el('td', { class: 'num', text: String(c.farm_rows) }),
+            el('td', { class: 'num', text: fmtUsd(c.total_implied_usd) }),
+            el('td', { text: c.top_name + ' (' + fmtUsd(c.top_implied_usd) + ')' })
+          );
+        }))
+      ),
+      el('h3', { text: 'How the verdict is read' }),
+      concentrationNote(),
+      el('p', { class: 'sub', text: 'The verdict compares the modelled value with what the farm itself costs, as a ratio, not as a dollar size. Farm when the value is at least a million times the cost, farm small at three hundred thousand times, thin at eighty thousand times, and skip below that. A small protocol with cheap gas can outrank a giant one with expensive gas: the ratio is the point.' }),
+      el('p', { class: 'sub', text: 'Risk is read off the seven-day change alone. Falling means the protocol lost 15% or more of its TVL in a week: farm it smaller, or wait for the fall to stop. Surging means it gained 25% or more: the growth multiplier already credits the move, but a spike can unwind, so the plan still holds the full term.' })
     );
   }
 
@@ -390,12 +452,14 @@
         el('div', null, el('span', { text: 'TVL' }), el('b', { class: 'num', text: fmtUsd(row.tvl_usd) })),
         el('div', null, el('span', { text: 'Fitted multiple' }), el('b', { class: 'num', text: row.multiple.toFixed(4) })),
         el('div', null, el('span', { text: 'Seven-day growth' }), el('b', { class: 'num', text: fmtPct(row.change_7d) })),
+        el('div', null, el('span', { text: 'Risk' }), el('b', { class: 'num', text: RISK_LABEL[row.risk] || row.risk })),
         el('div', null, el('span', { text: 'Age with no token' }), el('b', { class: 'num', text: fmtAge(row.age_days) })),
         el('div', null, el('span', { text: 'Growth multiplier' }), el('b', { class: 'num', text: String(row.growth_multiplier) })),
         el('div', null, el('span', { text: 'Maturity multiplier' }), el('b', { class: 'num', text: String(row.maturity_multiplier) })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
-      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
+      el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(recomputed) + (recomputed === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' }),
+      el('p', { class: 'sub', text: 'Risk: ' + (RISK_TEXT[row.risk] || RISK_TEXT.steady) })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Net farm cost' }),
